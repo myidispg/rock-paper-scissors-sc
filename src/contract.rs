@@ -5,7 +5,7 @@ use cw2::set_contract_version;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{GameMove, GameResult, GameState, State, GAMES, STATE};
+use crate::state::{GameMove, GameState, State, GAMES, STATE};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:counter";
@@ -48,25 +48,24 @@ pub fn execute(
 pub fn try_start_game(
     deps: DepsMut,
     info: MessageInfo,
-    opponent: String,
+    opponent: Addr,
     host_move: GameMove,
 ) -> Result<Response, ContractError> {
     // validate opponent address
-    let opponent_address = deps.api.addr_validate(&opponent)?;
-    println!("opponent_address: {:?}", opponent_address);
+    let opponent_address = deps.api.addr_validate(&opponent.to_string())?;
 
-    // Make sure that the host has only one game going on. A host can not have two games at the same time.
+    // Make sure that the host-opponent has only one game going on.
     let start_game = |game_state: Option<GameState>| -> Result<GameState, ContractError> {
         match game_state {
             Some(_) => {
                 // Error. Host already has a game going on.
-                return Err(ContractError::HostAlreadyHasGame {});
+                return Err(ContractError::HostOpponentPairAlreadyHasGame {});
             }
             None => {
                 // Start game
                 let game_state = GameState {
                     host_address: info.sender.clone(),
-                    opponent_address: opponent_address,
+                    opponent_address: opponent_address.clone(),
                     host_move: Some(host_move),
                     opponent_move: None,
                     result: None,
@@ -76,7 +75,12 @@ pub fn try_start_game(
         }
     };
 
-    GAMES.update(deps.storage, info.sender.to_string(), start_game)?;
+    // This will look for games with the given host-opponent pair.
+    GAMES.update(
+        deps.storage,
+        (info.sender.clone(), opponent_address.clone()),
+        start_game,
+    )?;
 
     // Game started successfully.
     return Ok(Response::new()
@@ -86,7 +90,52 @@ pub fn try_start_game(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {}
+    match msg {
+        QueryMsg::GetGame {
+            host_address,
+            opponent_address,
+        } => to_binary(&query_game(deps, host_address, opponent_address)?),
+        QueryMsg::GetGameByHost {
+            host_address: address,
+        } => to_binary(&query_game_by_address(deps, true, address)?),
+        QueryMsg::GetGameByOpponent {
+            opponent_address: address,
+        } => to_binary(&query_game_by_address(deps, false, address)?),
+    }
+}
+
+pub fn query_game(deps: Deps, host_address: Addr, opponent_address: Addr) -> StdResult<GameState> {
+    let game_state = GAMES
+        .may_load(deps.storage, (host_address, opponent_address))?
+        .unwrap();
+    let game_response = GameState {
+        host_address: game_state.host_address,
+        opponent_address: game_state.opponent_address,
+        host_move: game_state.host_move,
+        opponent_move: game_state.opponent_move,
+        result: game_state.result,
+    };
+    return Ok(game_response);
+}
+
+pub fn query_game_by_address(deps: Deps, host: bool, address: Addr) -> StdResult<Vec<GameState>> {
+    // if "host" is true, match by host address, else by opponent address.
+
+    // Make sure the address is valid
+    let address = deps.api.addr_validate(&address.to_string())?;
+
+    // Prefix allows to return only those games that have the "address" as one of the key
+    let game_state_keys: StdResult<Vec<_>> = GAMES
+        .prefix(address.clone())
+        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .collect();
+    let mut game_states: Vec<GameState> = Vec::new();
+
+    for game_state_key in &game_state_keys? {
+        game_states.push(game_state_key.1.clone());
+    }
+
+    return Ok(game_states);
 }
 
 #[cfg(test)]
@@ -107,12 +156,11 @@ mod tests {
         // Start a game
         let host_info = mock_info("host", &coins(0, "uluna"));
         let msg = ExecuteMsg::StartGame {
-            opponent: "opponent".to_string(),
+            opponent: Addr::unchecked("opponent"),
             host_move: GameMove::Rock,
         };
 
         let _res = execute(deps.as_mut(), mock_env(), host_info, msg);
-        println!("First execute result: {:?}", _res);
 
         // Try starting another game
         // let host_info = mock_info("host", &coins(0, "uluna"));
@@ -133,6 +181,74 @@ mod tests {
         //         println!("Second execute has something unforeseen");
         //     }
         // }
+    }
+    #[test]
+    fn test_game_query_pair() {
+        // Query for a game using a specific pair.
+        let mut deps = mock_dependencies(&[]);
+
+        // Instantiate the contract
+        let msg = InstantiateMsg {};
+        let info = mock_info("creator", &coins(0, "uluna"));
+        let _res = instantiate(deps.as_mut(), mock_env(), info, msg);
+
+        // Start a game
+        let host_info = mock_info("host", &coins(0, "uluna"));
+        let msg = ExecuteMsg::StartGame {
+            opponent: Addr::unchecked("opponent"),
+            host_move: GameMove::Rock,
+        };
+
+        let _res = execute(deps.as_mut(), mock_env(), host_info, msg);
+
+        // Query for the game
+        let msg = QueryMsg::GetGame {
+            host_address: Addr::unchecked("host"),
+            opponent_address: Addr::unchecked("opponent"),
+        };
+
+        let _res = query(deps.as_ref(), mock_env(), msg).unwrap();
+    }
+
+    #[test]
+    fn test_game_query_address() {
+        let mut deps = mock_dependencies(&[]);
+
+        let msg = InstantiateMsg {};
+        let info = mock_info("creator", &coins(0, "uluna"));
+        let _res = instantiate(deps.as_mut(), mock_env(), info, msg);
+
+        // Start a game
+        let host_info = mock_info("host", &coins(0, "uluna"));
+        let msg = ExecuteMsg::StartGame {
+            opponent: Addr::unchecked("opponent"),
+            host_move: GameMove::Rock,
+        };
+        let _res = execute(deps.as_mut(), mock_env(), host_info, msg);
+        // Start another game. This should not work
+        let host_info = mock_info("host", &coins(0, "uluna"));
+        let msg = ExecuteMsg::StartGame {
+            opponent: Addr::unchecked("opponent2"),
+            host_move: GameMove::Rock,
+        };
+        let _res = execute(deps.as_mut(), mock_env(), host_info, msg);
+        match _res {
+            Err(ContractError::HostOpponentPairAlreadyHasGame {}) => {
+                panic!("The host opponent pair already has a game going on!");
+            }
+
+            _ => {
+                // println!("Second execute result: {:?}", _res);
+            }
+        }
+
+        // Query for the games
+        let msg = QueryMsg::GetGameByHost {
+            host_address: Addr::unchecked("host"),
+        };
+        let _res = query(deps.as_ref(), mock_env(), msg).unwrap();
+        let _res: Vec<GameState> = from_binary(&_res).unwrap();
+        println!("_res: {:?}", _res);
     }
 
     //     #[test]

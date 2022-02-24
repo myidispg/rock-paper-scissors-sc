@@ -9,8 +9,8 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
-    #[error("Host already has a game going on")]
-    HostAlreadyHasGame {},
+    #[error("Host-opponent pair already has a game going on")]
+    HostOpponentPairAlreadyHasGame {},
     // Add any other custom errors you like here.
     // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
 }

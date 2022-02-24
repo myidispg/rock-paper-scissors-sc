@@ -10,7 +10,8 @@ pub struct State {
 }
 
 pub const STATE: Item<State> = Item::new("state");
-pub const GAMES: Map<String, GameState> = Map::new("games");
+// Each map has a key: (host_address, opponent_address) -> game_state
+pub const GAMES: Map<(Addr, Addr), GameState> = Map::new("games");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct GameState {
