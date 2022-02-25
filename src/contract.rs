@@ -124,17 +124,31 @@ pub fn query_game_by_address(deps: Deps, host: bool, address: Addr) -> StdResult
     // Make sure the address is valid
     let address = deps.api.addr_validate(&address.to_string())?;
 
-    // Prefix allows to return only those games that have the "address" as one of the key
-    let game_state_keys: StdResult<Vec<_>> = GAMES
-        .prefix(address.clone())
-        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-        .collect();
     let mut game_states: Vec<GameState> = Vec::new();
 
-    for game_state_key in &game_state_keys? {
-        game_states.push(game_state_key.1.clone());
-    }
+    // Search by host address
+    if host == true {
+        // Prefix allows to return only those games that have the "address" as the first value in the key tuple.
+        let game_state_keys: StdResult<Vec<_>> = GAMES
+            .prefix(address.clone())
+            .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+            .collect();
+        
+        for game_state_key in &game_state_keys? {
+            game_states.push(game_state_key.1.clone());
+        }
+    } else {
+        // Search by borrower address
+        let game_state_keys: StdResult<Vec<_>> = GAMES.range(deps.storage, None, None, cosmwasm_std::Order::Ascending).collect();
+        println!("Game state keys by opponent: {:?}", game_state_keys);
 
+        for game_state_key in &game_state_keys? {
+            if game_state_key.1.opponent_address == address {
+                game_states.push(game_state_key.1.clone());
+            }
+        }
+
+    }
     return Ok(game_states);
 }
 
@@ -226,7 +240,7 @@ mod tests {
         };
         let _res = execute(deps.as_mut(), mock_env(), host_info, msg);
         // Start another game. This should not work
-        let host_info = mock_info("host", &coins(0, "uluna"));
+        let host_info = mock_info("creator", &coins(0, "uluna"));
         let msg = ExecuteMsg::StartGame {
             opponent: Addr::unchecked("opponent2"),
             host_move: GameMove::Rock,
@@ -243,12 +257,15 @@ mod tests {
         }
 
         // Query for the games
+        // let msg = QueryMsg::GetGameByOpponent {
+        //     opponent_address: Addr::unchecked("opponent3"),
+        // };
         let msg = QueryMsg::GetGameByHost {
-            host_address: Addr::unchecked("host"),
+            host_address: Addr::unchecked("creator"),
         };
         let _res = query(deps.as_ref(), mock_env(), msg).unwrap();
         let _res: Vec<GameState> = from_binary(&_res).unwrap();
-        println!("_res: {:?}", _res);
+        println!("Games found: {:?}", _res);
     }
 
     //     #[test]
