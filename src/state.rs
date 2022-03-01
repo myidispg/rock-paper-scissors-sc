@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::Addr;
 use cw_storage_plus::{Item, Map};
+use cw_controllers::{Admin, Hooks};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct State {
@@ -12,6 +13,9 @@ pub struct State {
 pub const STATE: Item<State> = Item::new("state");
 // Each map has a key: (host_address, opponent_address) -> game_state
 pub const GAMES: Map<(Addr, Addr), GameState> = Map::new("games");
+pub const ADMIN: Admin = Admin::new("admin");
+pub const HOOKS: Hooks = Hooks::new("hooks");
+
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct GameState {

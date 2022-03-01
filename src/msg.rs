@@ -11,10 +11,11 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    StartGame {
-        opponent: Addr,
-        host_move: GameMove,
-    },
+    StartGame { opponent: Addr, host_move: GameMove },
+    OpponentMove { host_address: String, opponent_address: String, opponent_move: GameMove },
+    UpdateAdmin { admin: Addr },
+    AddHook { hook_address: String },
+    RemoveHook { hook_address: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -30,6 +31,8 @@ pub enum QueryMsg {
     GetGameByOpponent {
         opponent_address: Addr,
     },
+
+    GetAdmin {},
 }
 
 // #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
